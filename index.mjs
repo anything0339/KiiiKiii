@@ -1,24 +1,7 @@
-// KiiiKii - Discord bot + ArcheAge event alerts (ported from aa-alert webhook version)
+// index.mjs
+// KiiiKii - Discord bot + ArcheAge event alerts + basic server management commands
+
 import fs from "node:fs/promises";
-
-const CONFIG_PATH = "./config.json";
-let CONFIG = {
-  alertChannelId: process.env.ALERT_CHANNEL_ID, // 기본값
-  mutedUntil: 0, // epoch ms
-};
-
-async function loadConfig() {
-  try {
-    const raw = await fs.readFile(CONFIG_PATH, "utf8");
-    CONFIG = { ...CONFIG, ...JSON.parse(raw) };
-  } catch {
-    // 파일 없으면 무시
-  }
-}
-
-async function saveConfig() {
-  await fs.writeFile(CONFIG_PATH, JSON.stringify(CONFIG, null, 2), "utf8");
-}
 import http from "node:http";
 import cron from "node-cron";
 import {
@@ -30,7 +13,28 @@ import {
   PermissionsBitField,
 } from "discord.js";
 
-/* ------------------ 기존 aa-alert 설정 ------------------ */
+/* ------------------ config (persist) ------------------ */
+
+const CONFIG_PATH = "./config.json";
+let CONFIG = {
+  alertChannelId: process.env.ALERT_CHANNEL_ID, // default from env (initial)
+  mutedUntil: 0, // epoch ms
+};
+
+async function loadConfig() {
+  try {
+    const raw = await fs.readFile(CONFIG_PATH, "utf8");
+    CONFIG = { ...CONFIG, ...JSON.parse(raw) };
+  } catch {
+    // ignore if not exists
+  }
+}
+
+async function saveConfig() {
+  await fs.writeFile(CONFIG_PATH, JSON.stringify(CONFIG, null, 2), "utf8");
+}
+
+/* ------------------ aa-alert settings ------------------ */
 
 const NAME_MAP = {
   "black dragon": "검은 용",
@@ -44,10 +48,8 @@ const NAME_MAP = {
   "grimghast rift": "밤징",
 };
 
-// NA 고정으로 쓰고 싶으면 그대로 두고, 바꾸고 싶으면 Railway 변수 REGION으로 오버라이드 가능
 const REGION = process.env.REGION || "NA";
 
-// 이벤트 데이터(원격 JSON)
 const EVENTS_URL =
   "https://raw.githubusercontent.com/Archey6/archeage-tools/data/static/service/eventsNoDST.json";
 
@@ -66,7 +68,6 @@ const TARGETS = [
 const LEADS_MIN = [10, 1];
 const CRON = "*/1 * * * *";
 
-// (간단 중복 방지) 프로세스 재시작되면 초기화됨
 const sent = new Set();
 
 const WEEKDAY = {
@@ -129,32 +130,32 @@ function nextOccurrenceUtc(timesEntry, now = new Date()) {
 
 async function fetchEvents() {
   const res = await fetch(EVENTS_URL, { cache: "no-store" });
-  if (!res.ok) throw new Error(`events fetch 실패: ${res.status}`);
+  if (!res.ok) throw new Error(`events fetch failed: ${res.status}`);
   return await res.json();
 }
 
-/* ------------------ 스타일 자동 설정(aa-alert 그대로) ------------------ */
+/* ------------------ embed styling ------------------ */
 
 function getEmbedColor(name) {
   const n = name.toLowerCase();
 
   if (n.includes("hiram rift") || n.includes("akasch invasion"))
-    return 0x3498db; // 파랑
+    return 0x3498db;
 
   if (n.includes("golden plains battle"))
-    return 0x9b59b6; // 보라
+    return 0x9b59b6;
 
   if (
     n.includes("kraken") ||
     n.includes("jola, meina, & glenn") ||
     n.includes("black dragon")
   )
-    return 0xe74c3c; // 빨강
+    return 0xe74c3c;
 
   if (n.includes("crimson rift") || n.includes("grimghast rift"))
-    return 0xf39c12; // 주황
+    return 0xf39c12;
 
-  return 0x95a5a6; // 기본 회색
+  return 0x95a5a6;
 }
 
 function getEmoji(name) {
@@ -173,30 +174,26 @@ function getEmoji(name) {
   return "⏰";
 }
 
-/* ------------------ Discord bot 설정 ------------------ */
+/* ------------------ Discord bot settings ------------------ */
 
 const TOKEN = process.env.DISCORD_TOKEN;
 const CLIENT_ID = process.env.DISCORD_CLIENT_ID;
-
-// ✅ 테스트 서버(커맨드 등록용). 길드 서버로 보내는 건 별도 채널 ID로 처리
-const TEST_GUILD_ID = process.env.DISCORD_GUILD_ID;
-
-// ✅ 실제 알림이 올라갈 길드 서버 채널 ID (병행 테스트는 #kiki-test로)
-const ALERT_CHANNEL_ID = process.env.ALERT_CHANNEL_ID;
-
-// (선택) 멘션 역할 ID
+const TEST_GUILD_ID = process.env.DISCORD_GUILD_ID; // commands register target guild
 const ALERT_ROLE_ID = process.env.ALERT_ROLE_ID || null;
 
 if (!TOKEN || !CLIENT_ID || !TEST_GUILD_ID) {
-  console.error("Missing env: DISCORD_TOKEN / DISCORD_CLIENT_ID / DISCORD_GUILD_ID");
+  console.error(
+    "Missing env: DISCORD_TOKEN / DISCORD_CLIENT_ID / DISCORD_GUILD_ID"
+  );
   process.exit(1);
 }
-if (!ALERT_CHANNEL_ID) {
+if (!process.env.ALERT_CHANNEL_ID) {
   console.error("Missing env: ALERT_CHANNEL_ID");
   process.exit(1);
 }
 
-// 커맨드: 테스트 서버에만 등록
+/* ------------------ Slash Commands ------------------ */
+
 const commands = [
   new SlashCommandBuilder().setName("ping").setDescription("키키봇 체크"),
 
@@ -219,10 +216,9 @@ const commands = [
         .setMinValue(1)
     ),
 
-  // (선택) 너가 이미 쓰는 테스트
   new SlashCommandBuilder()
     .setName("testalert")
-    .setDescription("길드 서버 알림 채널로 임베드 테스트 발송"),
+    .setDescription("알림 채널로 임베드 테스트 발송"),
 ].map((c) => c.toJSON());
 
 const rest = new REST({ version: "10" }).setToken(TOKEN);
@@ -234,16 +230,23 @@ async function registerCommands() {
   console.log("Registered guild commands for guild:", TEST_GUILD_ID);
 }
 
+/* ------------------ client ------------------ */
+
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
+function requireManageGuild(interaction) {
+  const perms = interaction.memberPermissions;
+  return perms?.has(PermissionsBitField.Flags.ManageGuild);
+}
+
 async function sendToAlertChannel(embedObject) {
-  
   const now = Date.now();
   if (CONFIG.mutedUntil && now < CONFIG.mutedUntil) return;
-  
-  const ch = await client.channels.fetch(CONFIG.alertChannelId);
+
+  const channelId = CONFIG.alertChannelId || process.env.ALERT_CHANNEL_ID;
+  const ch = await client.channels.fetch(channelId);
   if (!ch || !("send" in ch)) {
-    throw new Error("ALERT_CHANNEL_ID is not a sendable channel");
+    throw new Error("Configured alertChannelId is not a sendable channel");
   }
 
   const mention = ALERT_ROLE_ID ? `<@&${ALERT_ROLE_ID}>` : undefined;
@@ -255,7 +258,7 @@ async function sendToAlertChannel(embedObject) {
   });
 }
 
-/* ------------------ aa-alert tick (발송만 디스코드로) ------------------ */
+/* ------------------ aa-alert tick ------------------ */
 
 async function tick() {
   const now = new Date();
@@ -275,7 +278,6 @@ async function tick() {
     const timesExact = ev.times?.filter((t) => t.region === REGION) ?? [];
     const timesFallback = ev.times?.filter((t) => t.region == null) ?? [];
     const times = timesExact.length ? timesExact : timesFallback;
-
     if (!times.length) continue;
 
     let bestNext = null;
@@ -291,15 +293,13 @@ async function tick() {
     for (const leadMin of LEADS_MIN) {
       const alertEpoch = startEpoch - leadMin * 60;
 
-      // 1분 크론 + 여유 20초
+      // cron every 1 min + 20 sec tolerance
       if (Math.abs(nowEpoch - alertEpoch) <= 20) {
         const minuteBucket = Math.floor(alertEpoch / 60);
         const key = `${ev.id}-${startEpoch}-${leadMin}-${minuteBucket}`;
-
         if (sent.has(key)) continue;
         sent.add(key);
 
-        // ✅ 임베드 “그대로” 유지 (웹훅 객체 형식 그대로)
         const embed = {
           title: `${getEmoji(baseName)} ${displayName}`,
           color: getEmbedColor(baseName),
@@ -322,65 +322,44 @@ client.once("ready", async () => {
 
   await loadConfig();
 
-  // 스케줄 시작
   cron.schedule(CRON, () => tick().catch(console.error), {
     timezone: "Asia/Seoul",
   });
 
-  // 부팅 직후 한 번 실행
   tick().catch(console.error);
 });
-
-function requireManageGuild(interaction) {
-  const perms = interaction.memberPermissions;
-  return perms?.has(PermissionsBitField.Flags.ManageGuild);
-}
 
 client.on("interactionCreate", async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
 
   try {
+    // ping
     if (interaction.commandName === "ping") {
       await interaction.reply("pong 🐾 키키봇 온라인!");
       return;
     }
 
-    if (interaction.commandName === "testalert") {
-      await interaction.reply({ content: "임베드 테스트 발송 중…", ephemeral: true });
+    // setchannel
+    if (interaction.commandName === "setchannel") {
+      await interaction.deferReply({ ephemeral: true });
 
-      const embed = {
-        title: "🔔 키키봇 임베드 테스트",
-        color: 0x2ecc71,
-        description:
-          "이 메시지가 길드 서버 채널에 보이면 성공!\n\n(병행 테스트 중이면 #kiki-test로만 보내도록 설정해두자)",
-        footer: { text: "kikibot" },
-      };
-
-if (interaction.commandName === "setchannel") {
-  await interaction.deferReply({ ephemeral: true }); // ✅ 먼저 응답 예약
-
-  if (!requireManageGuild(interaction)) {
-    await interaction.editReply("❌ 이 명령어는 **서버 관리 권한(Manage Server)** 이 필요해.");
-    return;
-  }
-
-  CONFIG.alertChannelId = interaction.channelId;
-  await saveConfig();
-
-  await interaction.editReply(`✅ 이 채널을 알림 채널로 설정했어: <#${CONFIG.alertChannelId}>`);
-  return;
-}
+      if (!requireManageGuild(interaction)) {
+        await interaction.editReply(
+          "❌ 이 명령어는 **서버 관리 권한(Manage Server)** 이 필요해."
+        );
+        return;
+      }
 
       CONFIG.alertChannelId = interaction.channelId;
       await saveConfig();
 
-      await interaction.reply({
-        content: `✅ 이 채널을 알림 채널로 설정했어: <#${CONFIG.alertChannelId}>`,
-        ephemeral: true,
-      });
+      await interaction.editReply(
+        `✅ 이 채널을 알림 채널로 설정했어: <#${CONFIG.alertChannelId}>`
+      );
       return;
     }
 
+    // status
     if (interaction.commandName === "status") {
       const muted =
         CONFIG.mutedUntil && Date.now() < CONFIG.mutedUntil
@@ -393,7 +372,7 @@ if (interaction.commandName === "setchannel") {
           {
             title: "📌 키키봇 상태",
             description:
-              `**알림 채널:** <#${CONFIG.alertChannelId}>\n` +
+              `**알림 채널:** <#${CONFIG.alertChannelId || process.env.ALERT_CHANNEL_ID}>\n` +
               `**Mute:** ${muted}\n` +
               `**REGION:** ${REGION}\n` +
               `**CRON:** ${CRON}`,
@@ -403,24 +382,39 @@ if (interaction.commandName === "setchannel") {
       return;
     }
 
-if (interaction.commandName === "mute") {
-  await interaction.deferReply({ ephemeral: true }); // ✅
+    // mute
+    if (interaction.commandName === "mute") {
+      await interaction.deferReply({ ephemeral: true });
 
-  if (!requireManageGuild(interaction)) {
-    await interaction.editReply("❌ 이 명령어는 **서버 관리 권한(Manage Server)** 이 필요해.");
-    return;
-  }
+      if (!requireManageGuild(interaction)) {
+        await interaction.editReply(
+          "❌ 이 명령어는 **서버 관리 권한(Manage Server)** 이 필요해."
+        );
+        return;
+      }
 
-  const minutes = interaction.options.getInteger("minutes", true);
-  CONFIG.mutedUntil = Date.now() + minutes * 60 * 1000;
-  await saveConfig();
+      const minutes = interaction.options.getInteger("minutes", true);
+      CONFIG.mutedUntil = Date.now() + minutes * 60 * 1000;
+      await saveConfig();
 
-  await interaction.editReply(`🔕 ${minutes}분 동안 알림을 꺼둘게!`);
-  return;
-}
+      await interaction.editReply(`🔕 ${minutes}분 동안 알림을 꺼둘게!`);
+      return;
+    }
+
+    // testalert
+    if (interaction.commandName === "testalert") {
+      await interaction.deferReply({ ephemeral: true });
+
+      const embed = {
+        title: "🔔 키키봇 임베드 테스트",
+        color: 0x2ecc71,
+        description: "이 메시지가 알림 채널에 보이면 성공!",
+        footer: { text: "kikibot" },
+      };
 
       await sendToAlertChannel(embed);
-      await interaction.editReply("✅ 발송 완료! 길드 서버 채널 확인해줘.");
+      await interaction.editReply("✅ 발송 완료! 알림 채널 확인해줘.");
+      return;
     }
   } catch (err) {
     console.error(err);
@@ -438,7 +432,7 @@ if (interaction.commandName === "mute") {
 await registerCommands();
 await client.login(TOKEN);
 
-// Railway health server (유지)
+// Railway health server
 const port = Number(process.env.PORT || 3000);
 http
   .createServer((req, res) => {
