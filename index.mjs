@@ -27,6 +27,7 @@ import {
   REST,
   Routes,
   SlashCommandBuilder,
+  PermissionsBitField,
 } from "discord.js";
 
 /* ------------------ 기존 aa-alert 설정 ------------------ */
@@ -198,6 +199,27 @@ if (!ALERT_CHANNEL_ID) {
 // 커맨드: 테스트 서버에만 등록
 const commands = [
   new SlashCommandBuilder().setName("ping").setDescription("키키봇 체크"),
+
+  new SlashCommandBuilder()
+    .setName("setchannel")
+    .setDescription("현재 채널을 알림 채널로 설정"),
+
+  new SlashCommandBuilder()
+    .setName("status")
+    .setDescription("키키봇 상태/설정 확인"),
+
+  new SlashCommandBuilder()
+    .setName("mute")
+    .setDescription("알림을 잠깐 끕니다 (분 단위)")
+    .addIntegerOption((o) =>
+      o
+        .setName("minutes")
+        .setDescription("몇 분 동안 끌까?")
+        .setRequired(true)
+        .setMinValue(1)
+    ),
+
+  // (선택) 너가 이미 쓰는 테스트
   new SlashCommandBuilder()
     .setName("testalert")
     .setDescription("길드 서버 알림 채널로 임베드 테스트 발송"),
@@ -309,6 +331,11 @@ client.once("ready", async () => {
   tick().catch(console.error);
 });
 
+function requireManageGuild(interaction) {
+  const perms = interaction.memberPermissions;
+  return perms?.has(PermissionsBitField.Flags.ManageGuild);
+}
+
 client.on("interactionCreate", async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
 
@@ -328,6 +355,67 @@ client.on("interactionCreate", async (interaction) => {
           "이 메시지가 길드 서버 채널에 보이면 성공!\n\n(병행 테스트 중이면 #kiki-test로만 보내도록 설정해두자)",
         footer: { text: "kikibot" },
       };
+
+          if (interaction.commandName === "setchannel") {
+      if (!requireManageGuild(interaction)) {
+        await interaction.reply({
+          content: "❌ 이 명령어는 **서버 관리 권한(Manage Server)** 이 필요해.",
+          ephemeral: true,
+        });
+        return;
+      }
+
+      CONFIG.alertChannelId = interaction.channelId;
+      await saveConfig();
+
+      await interaction.reply({
+        content: `✅ 이 채널을 알림 채널로 설정했어: <#${CONFIG.alertChannelId}>`,
+        ephemeral: true,
+      });
+      return;
+    }
+
+    if (interaction.commandName === "status") {
+      const muted =
+        CONFIG.mutedUntil && Date.now() < CONFIG.mutedUntil
+          ? `<t:${Math.floor(CONFIG.mutedUntil / 1000)}:F>까지`
+          : "아님";
+
+      await interaction.reply({
+        ephemeral: true,
+        embeds: [
+          {
+            title: "📌 키키봇 상태",
+            description:
+              `**알림 채널:** <#${CONFIG.alertChannelId}>\n` +
+              `**Mute:** ${muted}\n` +
+              `**REGION:** ${REGION}\n` +
+              `**CRON:** ${CRON}`,
+          },
+        ],
+      });
+      return;
+    }
+
+    if (interaction.commandName === "mute") {
+      if (!requireManageGuild(interaction)) {
+        await interaction.reply({
+          content: "❌ 이 명령어는 **서버 관리 권한(Manage Server)** 이 필요해.",
+          ephemeral: true,
+        });
+        return;
+      }
+
+      const minutes = interaction.options.getInteger("minutes", true);
+      CONFIG.mutedUntil = Date.now() + minutes * 60 * 1000;
+      await saveConfig();
+
+      await interaction.reply({
+        content: `🔕 ${minutes}분 동안 알림을 꺼둘게!`,
+        ephemeral: true,
+      });
+      return;
+    }
 
       await sendToAlertChannel(embed);
       await interaction.editReply("✅ 발송 완료! 길드 서버 채널 확인해줘.");
