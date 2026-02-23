@@ -1,4 +1,24 @@
 // KiiiKii - Discord bot + ArcheAge event alerts (ported from aa-alert webhook version)
+import fs from "node:fs/promises";
+
+const CONFIG_PATH = "./config.json";
+let CONFIG = {
+  alertChannelId: process.env.ALERT_CHANNEL_ID, // 기본값
+  mutedUntil: 0, // epoch ms
+};
+
+async function loadConfig() {
+  try {
+    const raw = await fs.readFile(CONFIG_PATH, "utf8");
+    CONFIG = { ...CONFIG, ...JSON.parse(raw) };
+  } catch {
+    // 파일 없으면 무시
+  }
+}
+
+async function saveConfig() {
+  await fs.writeFile(CONFIG_PATH, JSON.stringify(CONFIG, null, 2), "utf8");
+}
 import http from "node:http";
 import cron from "node-cron";
 import {
@@ -195,7 +215,11 @@ async function registerCommands() {
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
 async function sendToAlertChannel(embedObject) {
-  const ch = await client.channels.fetch(ALERT_CHANNEL_ID);
+  
+  const now = Date.now();
+  if (CONFIG.mutedUntil && now < CONFIG.mutedUntil) return;
+  
+  const ch = await client.channels.fetch(CONFIG.alertChannelId);
   if (!ch || !("send" in ch)) {
     throw new Error("ALERT_CHANNEL_ID is not a sendable channel");
   }
@@ -273,6 +297,8 @@ async function tick() {
 client.once("ready", async () => {
   console.log(`Logged in as ${client.user.tag}`);
   console.log("AA alert (bot) started");
+
+  await loadConfig();
 
   // 스케줄 시작
   cron.schedule(CRON, () => tick().catch(console.error), {
