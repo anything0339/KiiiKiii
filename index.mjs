@@ -209,7 +209,7 @@ async function registerCommands() {
   await rest.put(Routes.applicationGuildCommands(CLIENT_ID, TEST_GUILD_ID), {
     body: commands,
   });
-  console.log("Registered guild commands (test server)");
+  console.log("Registered guild commands for guild:", TEST_GUILD_ID);
 }
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
