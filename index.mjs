@@ -356,14 +356,20 @@ client.on("interactionCreate", async (interaction) => {
         footer: { text: "kikibot" },
       };
 
-          if (interaction.commandName === "setchannel") {
-      if (!requireManageGuild(interaction)) {
-        await interaction.reply({
-          content: "❌ 이 명령어는 **서버 관리 권한(Manage Server)** 이 필요해.",
-          ephemeral: true,
-        });
-        return;
-      }
+if (interaction.commandName === "setchannel") {
+  await interaction.deferReply({ ephemeral: true }); // ✅ 먼저 응답 예약
+
+  if (!requireManageGuild(interaction)) {
+    await interaction.editReply("❌ 이 명령어는 **서버 관리 권한(Manage Server)** 이 필요해.");
+    return;
+  }
+
+  CONFIG.alertChannelId = interaction.channelId;
+  await saveConfig();
+
+  await interaction.editReply(`✅ 이 채널을 알림 채널로 설정했어: <#${CONFIG.alertChannelId}>`);
+  return;
+}
 
       CONFIG.alertChannelId = interaction.channelId;
       await saveConfig();
@@ -397,25 +403,21 @@ client.on("interactionCreate", async (interaction) => {
       return;
     }
 
-    if (interaction.commandName === "mute") {
-      if (!requireManageGuild(interaction)) {
-        await interaction.reply({
-          content: "❌ 이 명령어는 **서버 관리 권한(Manage Server)** 이 필요해.",
-          ephemeral: true,
-        });
-        return;
-      }
+if (interaction.commandName === "mute") {
+  await interaction.deferReply({ ephemeral: true }); // ✅
 
-      const minutes = interaction.options.getInteger("minutes", true);
-      CONFIG.mutedUntil = Date.now() + minutes * 60 * 1000;
-      await saveConfig();
+  if (!requireManageGuild(interaction)) {
+    await interaction.editReply("❌ 이 명령어는 **서버 관리 권한(Manage Server)** 이 필요해.");
+    return;
+  }
 
-      await interaction.reply({
-        content: `🔕 ${minutes}분 동안 알림을 꺼둘게!`,
-        ephemeral: true,
-      });
-      return;
-    }
+  const minutes = interaction.options.getInteger("minutes", true);
+  CONFIG.mutedUntil = Date.now() + minutes * 60 * 1000;
+  await saveConfig();
+
+  await interaction.editReply(`🔕 ${minutes}분 동안 알림을 꺼둘게!`);
+  return;
+}
 
       await sendToAlertChannel(embed);
       await interaction.editReply("✅ 발송 완료! 길드 서버 채널 확인해줘.");
