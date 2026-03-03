@@ -6,7 +6,10 @@ import { AttachmentBuilder } from "discord.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// ✅ 루트에 폰트 있을 때는 이렇게!
+/**
+ * ✅ 폰트 등록 (레포 루트에 Aa보글보글.ttf가 있을 때)
+ *   - 만약 나중에 fonts/ 폴더로 옮기면 path.join(__dirname, "fonts", "Aa보글보글.ttf") 로 바꾸면 됨
+ */
 GlobalFonts.registerFromPath(
   path.join(__dirname, "Aa보글보글.ttf"),
   "KIKI_FONT"
@@ -20,6 +23,7 @@ const MATERIAL_KO = {
   "iron ingot": "철 주괴",
   iron: "철 주괴",
   "철 주괴": "철 주괴",
+  "철주괴": "철 주괴",
 
   leather: "가죽",
   "가죽": "가죽",
@@ -35,14 +39,24 @@ const MATERIAL_KO = {
 
 const MATERIAL_ORDER = ["철 주괴", "가죽", "목재", "옷감"];
 
+const MAT_EMOJI = {
+  "철 주괴": "⛓️",
+  "가죽": "🦬",
+  "목재": "🪵",
+  "옷감": "🧵",
+};
+
 export function normMaterial(input) {
   const key = String(input ?? "").trim().toLowerCase();
   return MATERIAL_KO[key] ?? null;
 }
 
 /* ---------------------------
-   2) 입력 파싱
-   형식: 재료 | 마을 | 수량
+   2) 입력 파싱 (세로줄 없이 띄어쓰기)
+   예)
+   철 주괴 동틀녘 반도 20
+   가죽 마하데비 60
+   목재 하슬라 100
 ---------------------------- */
 export function parseBondsLines(raw) {
   const lines = String(raw ?? "")
@@ -53,35 +67,42 @@ export function parseBondsLines(raw) {
   const items = [];
 
   for (const line of lines) {
+    // 혹시 | 형식도 들어오면 같이 지원(있어도 무해)
+    if (line.includes("|")) {
+      const parts = line.split("|").map((p) => p.trim());
+      if (parts.length !== 3) continue;
+
+      const material = normMaterial(parts[0]);
+      const town = parts[1];
+      const qty = Number(parts[2]);
+
+      if (!material || !town || ![20, 60, 100].includes(qty)) continue;
+      items.push({ material, town, qty });
+      continue;
+    }
+
+    // 띄어쓰기 파싱
     const tokens = line.split(/\s+/);
     if (tokens.length < 3) continue;
 
-    // 마지막은 반드시 수량
     const qty = Number(tokens[tokens.length - 1]);
     if (![20, 60, 100].includes(qty)) continue;
 
-    // 재료 후보: 앞 2단어 or 1단어
-    let material = null;
-    let townStartIndex = 1;
-
+    // 재료: 앞 2토큰(철 주괴) 우선, 아니면 1토큰(가죽/철주괴)
     const firstTwo = tokens.slice(0, 2).join(" ");
     const firstOne = tokens[0];
 
-    if (normMaterial(firstTwo)) {
-      material = normMaterial(firstTwo);
-      townStartIndex = 2;
-    } else if (normMaterial(firstOne)) {
+    let material = normMaterial(firstTwo);
+    let townStartIdx = 2;
+
+    if (!material) {
       material = normMaterial(firstOne);
-      townStartIndex = 1;
+      townStartIdx = 1;
     }
 
     if (!material) continue;
 
-    const town = tokens
-      .slice(townStartIndex, tokens.length - 1)
-      .join(" ")
-      .trim();
-
+    const town = tokens.slice(townStartIdx, tokens.length - 1).join(" ").trim();
     if (!town) continue;
 
     items.push({ material, town, qty });
@@ -91,33 +112,8 @@ export function parseBondsLines(raw) {
 }
 
 /* ---------------------------
-   3) PNG 렌더 (대시보드 스타일)
+   3) 렌더 유틸
 ---------------------------- */
-function qtyStyle(qty) {
-  // 너무 쨍하지 않게, 다크 대시보드 톤
-  if (qty === 20) return { bg: "#163d2b", fg: "#8ff0b8" };
-  if (qty === 60) return { bg: "#3d3317", fg: "#ffd78a" };
-  return { bg: "#3a1c1c", fg: "#ff9a9a" }; // 100
-}
-
-function groupByMaterial(items) {
-  const map = new Map();
-  for (const m of MATERIAL_ORDER) map.set(m, []);
-
-  for (const it of items) {
-    if (!map.has(it.material)) map.set(it.material, []);
-    map.get(it.material).push(it);
-  }
-
-  // 섹션 내부 정렬: 마을명 기준
-  for (const m of MATERIAL_ORDER) {
-    const arr = map.get(m) ?? [];
-    arr.sort((a, b) => a.town.localeCompare(b.town, "ko"));
-  }
-
-  return map;
-}
-
 function drawRoundedRect(ctx, x, y, w, h, r) {
   const rr = Math.min(r, w / 2, h / 2);
   ctx.beginPath();
@@ -145,157 +141,156 @@ function ellipsize(ctx, text, maxWidth) {
 }
 
 function formatStamp() {
-  // 예: 2026. 3. 3. 오후 5:10:22
   return new Date().toLocaleString("ko-KR");
 }
 
-/**
- * @param {object} arg
- * @param {string} arg.title
- * @param {{material:string,town:string,qty:number}[]} arg.items
- * @returns {AttachmentBuilder}
- */
+function groupByMaterial(items) {
+  const map = new Map();
+  for (const m of MATERIAL_ORDER) map.set(m, []);
+
+  for (const it of items) {
+    if (!map.has(it.material)) map.set(it.material, []);
+    map.get(it.material).push(it);
+  }
+
+  for (const m of MATERIAL_ORDER) {
+    const arr = map.get(m) ?? [];
+    arr.sort((a, b) => a.town.localeCompare(b.town, "ko"));
+  }
+
+  return map;
+}
+
+/* ---------------------------
+   4) PNG 렌더 (게임UI + 엑셀표 / 재료 셀 병합)
+---------------------------- */
 export function renderBondsDashboardPng({ title = "동대륙 채권", items = [] }) {
   const grouped = groupByMaterial(items);
 
-  // 레이아웃 상수
-  const cardW = 1000;
-  const padding = 36;
-  const innerW = cardW - padding * 2;
+  // 레이아웃
+  const W = 1000;
+  const pad = 28;
 
-  const headerH = 130;
-  const gap = 18;
+  const titleBoxH = 78;
+  const titleGap = 18;
 
-  const colGap = 18;
-  const colW = Math.floor((innerW - colGap) / 2);
+  const headerH = 52;
+  const rowH = 52;
 
-  const sectionPad = 18;
-  const sectionHeaderH = 46;
-  const rowH = 44;
+  const tableX = pad;
+  const tableY = pad + titleBoxH + titleGap;
+  const tableW = W - pad * 2;
 
-  // 섹션 높이 계산 (빈 섹션은 0)
-  const sectionHeights = MATERIAL_ORDER.map((m) => {
-    const rows = grouped.get(m)?.length ?? 0;
-    if (rows === 0) return 0;
-    return sectionPad * 2 + sectionHeaderH + rows * rowH;
-  });
+  const colMatW = 190; // 재료(병합)
+  const colQtyW = 110; // 수량
+  const colTownW = tableW - colMatW - colQtyW;
 
-  const row1H = Math.max(sectionHeights[0], sectionHeights[1]);
-  const row2H = Math.max(sectionHeights[2], sectionHeights[3]);
+  // 총 행 수(아이템 개수만큼)
+  const totalRows = items.length;
+  const tableH = headerH + totalRows * rowH;
 
-  const hasRow1 = row1H > 0;
-  const hasRow2 = row2H > 0;
+  // 전체 높이 계산
+  const H = tableY + tableH + pad;
 
-  let bodyH = 0;
-  if (hasRow1) bodyH += row1H;
-  if (hasRow1 && hasRow2) bodyH += gap;
-  if (hasRow2) bodyH += row2H;
-
-  const height = headerH + padding + bodyH + padding;
-
-  const canvas = createCanvas(cardW, height);
+  const canvas = createCanvas(W, H);
   const ctx = canvas.getContext("2d");
 
-  // 전체 배경
-  ctx.fillStyle = "#0b1020";
-  ctx.fillRect(0, 0, cardW, height);
+  // 배경 흰색
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, W, H);
 
-  // 헤더 카드
-  ctx.fillStyle = "#0f1730";
-  drawRoundedRect(ctx, padding, 22, cardW - padding * 2, headerH - 28, 18);
+  // 타이틀 박스 (살짝 UI 느낌만)
+  ctx.fillStyle = "#f6f7fb";
+  drawRoundedRect(ctx, pad, pad, W - pad * 2, titleBoxH, 16);
   ctx.fill();
 
-  // 제목
-  ctx.fillStyle = "#ffffff";
-  ctx.font = "700 44px KIKI_FONT";
-  ctx.fillText(title, padding + 22, 78);
+  // 타이틀 중앙
+  ctx.fillStyle = "#111827";
+  ctx.font = "700 40px KIKI_FONT";
+  ctx.textAlign = "center";
+  ctx.fillText(title, W / 2, pad + 48);
 
-  // 타임스탬프
-  ctx.fillStyle = "#93a4d8";
-  ctx.font = "26px KIKI_FONT";
-  ctx.fillText(formatStamp(), padding + 22, 112);
+  // 시간(작게)
+  ctx.fillStyle = "#6b7280";
+  ctx.font = "22px KIKI_FONT";
+  ctx.fillText(formatStamp(), W / 2, pad + 72);
+  ctx.textAlign = "left";
 
-  // 섹션 카드 그리기
-  function drawSection(x, y, w, h, material, rows) {
-    ctx.fillStyle = "#121a33";
-    drawRoundedRect(ctx, x, y, w, h, 18);
-    ctx.fill();
+  // 표 헤더
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = "#d1d5db"; // 엑셀 선
+  ctx.fillStyle = "#f3f4f6";
+  ctx.fillRect(tableX, tableY, tableW, headerH);
+  ctx.strokeRect(tableX, tableY, tableW, headerH);
 
-    // 섹션 타이틀
-    ctx.fillStyle = "#e9ecf5";
-    ctx.font = "700 30px KIKI_FONT";
-    ctx.fillText(material, x + 18, y + 44);
+  ctx.fillStyle = "#374151";
+  ctx.font = "700 22px KIKI_FONT";
+  ctx.fillText("재료", tableX + 14, tableY + 34);
+  ctx.fillText("마을", tableX + colMatW + 14, tableY + 34);
 
-    // 구분선
-    ctx.fillStyle = "#253056";
-    ctx.fillRect(x + 18, y + 60, w - 36, 2);
+  ctx.textAlign = "right";
+  ctx.fillText("수량", tableX + tableW - 14, tableY + 34);
+  ctx.textAlign = "left";
 
-    // 항목
-    ctx.font = "26px KIKI_FONT";
-    const townMaxW = w - 36 - 110; // 배지 공간 확보
-    let ry = y + 74;
+  // 줄무늬
+  const rowFill = (i) => (i % 2 === 0 ? "#ffffff" : "#fafafa");
 
-    for (const it of rows) {
-      // 마을명
-      ctx.fillStyle = "#e9ecf5";
-      const town = ellipsize(ctx, it.town, townMaxW);
-      ctx.fillText(town, x + 18, ry + 30);
+  // 본문 시작
+  let cursorY = tableY + headerH;
 
-      // 수량 배지
-      const { bg, fg } = qtyStyle(it.qty);
-      const bx = x + w - 18 - 86;
-      const by = ry + 9;
-      const bw = 86;
-      const bh = 30;
+  // 재료별로 그리되, 왼쪽은 “병합 셀”로 한 번만
+  for (const mat of MATERIAL_ORDER) {
+    const rows = grouped.get(mat) ?? [];
+    if (!rows.length) continue;
 
-      ctx.fillStyle = bg;
-      drawRoundedRect(ctx, bx, by, bw, bh, 12);
-      ctx.fill();
+    const groupH = rows.length * rowH;
 
-      ctx.fillStyle = fg;
-      ctx.font = "700 22px KIKI_FONT";
-      const t = String(it.qty);
-      const tw = ctx.measureText(t).width;
-      ctx.fillText(t, bx + (bw - tw) / 2, by + 22);
+    // 재료 병합 셀 (왼쪽)
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(tableX, cursorY, colMatW, groupH);
+    ctx.strokeRect(tableX, cursorY, colMatW, groupH);
 
-      ctx.font = "26px KIKI_FONT";
-      ry += rowH;
-    }
-  }
+    // 재료 텍스트 (가운데 정렬)
+    const emoji = MAT_EMOJI[mat] ? `${MAT_EMOJI[mat]} ` : "";
+    ctx.fillStyle = "#111827";
+    ctx.font = "800 24px KIKI_FONT";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(`${emoji}${mat}`, tableX + colMatW / 2, cursorY + groupH / 2);
+    ctx.textAlign = "left";
+    ctx.textBaseline = "alphabetic";
 
-  // 2열 배치 좌표
-  const xL = padding;
-  const xR = padding + colW + colGap;
+    // 오른쪽 행들 (마을/수량)
+    rows.forEach((it, i) => {
+      const y = cursorY + i * rowH;
 
-  // 본문 시작 y
-  let y = headerH + padding;
+      // 마을 셀
+      ctx.fillStyle = rowFill(i);
+      ctx.fillRect(tableX + colMatW, y, colTownW, rowH);
+      ctx.strokeRect(tableX + colMatW, y, colTownW, rowH);
 
-  // Row 1 (철 주괴 / 가죽)
-  if (hasRow1) {
-    const leftRows = grouped.get("철 주괴") ?? [];
-    const rightRows = grouped.get("가죽") ?? [];
+      // 수량 셀
+      ctx.fillStyle = rowFill(i);
+      ctx.fillRect(tableX + colMatW + colTownW, y, colQtyW, rowH);
+      ctx.strokeRect(tableX + colMatW + colTownW, y, colQtyW, rowH);
 
-    if (leftRows.length) {
-      drawSection(xL, y, colW, sectionHeights[0], "철 주괴", leftRows);
-    }
-    if (rightRows.length) {
-      drawSection(xR, y, colW, sectionHeights[1], "가죽", rightRows);
-    }
+      // 마을 텍스트
+      ctx.fillStyle = "#111827";
+      ctx.font = "24px KIKI_FONT";
+      const town = ellipsize(ctx, it.town, colTownW - 24);
+      ctx.fillText(town, tableX + colMatW + 12, y + 34);
 
-    y += row1H + gap;
-  }
+      // 수량 텍스트(색으로만 강조)
+      const qtyColor =
+        it.qty === 100 ? "#dc2626" : it.qty === 60 ? "#d97706" : "#059669";
+      ctx.fillStyle = qtyColor;
+      ctx.font = "900 24px KIKI_FONT";
+      ctx.textAlign = "right";
+      ctx.fillText(String(it.qty), tableX + tableW - 14, y + 34);
+      ctx.textAlign = "left";
+    });
 
-  // Row 2 (목재 / 옷감)
-  if (hasRow2) {
-    const leftRows = grouped.get("목재") ?? [];
-    const rightRows = grouped.get("옷감") ?? [];
-
-    if (leftRows.length) {
-      drawSection(xL, y, colW, sectionHeights[2], "목재", leftRows);
-    }
-    if (rightRows.length) {
-      drawSection(xR, y, colW, sectionHeights[3], "옷감", rightRows);
-    }
+    cursorY += groupH;
   }
 
   const buf = canvas.toBuffer("image/png");
