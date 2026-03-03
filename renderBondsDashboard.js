@@ -53,16 +53,36 @@ export function parseBondsLines(raw) {
   const items = [];
 
   for (const line of lines) {
-    const parts = line.split("|").map((p) => p.trim());
-    if (parts.length !== 3) continue;
+    const tokens = line.split(/\s+/);
+    if (tokens.length < 3) continue;
 
-    const material = normMaterial(parts[0]);
-    const town = parts[1];
-    const qty = Number(parts[2]);
+    // 마지막은 반드시 수량
+    const qty = Number(tokens[tokens.length - 1]);
+    if (![20, 60, 100].includes(qty)) continue;
+
+    // 재료 후보: 앞 2단어 or 1단어
+    let material = null;
+    let townStartIndex = 1;
+
+    const firstTwo = tokens.slice(0, 2).join(" ");
+    const firstOne = tokens[0];
+
+    if (normMaterial(firstTwo)) {
+      material = normMaterial(firstTwo);
+      townStartIndex = 2;
+    } else if (normMaterial(firstOne)) {
+      material = normMaterial(firstOne);
+      townStartIndex = 1;
+    }
 
     if (!material) continue;
+
+    const town = tokens
+      .slice(townStartIndex, tokens.length - 1)
+      .join(" ")
+      .trim();
+
     if (!town) continue;
-    if (![20, 60, 100].includes(qty)) continue;
 
     items.push({ material, town, qty });
   }
