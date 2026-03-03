@@ -59,36 +59,23 @@ export function normMaterial(input) {
    목재 하슬라 100
 ---------------------------- */
 export function parseBondsLines(raw) {
-  const lines = String(raw ?? "")
-    .split("\n")
-    .map((l) => l.trim())
+  if (!raw) return [];
+
+  // 1️⃣ 줄바꿈 + 쉼표 + 슬래시 모두 구분자로 사용
+  const segments = String(raw)
+    .split(/\n|,|\/+/)
+    .map((s) => s.trim())
     .filter(Boolean);
 
   const items = [];
 
-  for (const line of lines) {
-    // 혹시 | 형식도 들어오면 같이 지원(있어도 무해)
-    if (line.includes("|")) {
-      const parts = line.split("|").map((p) => p.trim());
-      if (parts.length !== 3) continue;
-
-      const material = normMaterial(parts[0]);
-      const town = parts[1];
-      const qty = Number(parts[2]);
-
-      if (!material || !town || ![20, 60, 100].includes(qty)) continue;
-      items.push({ material, town, qty });
-      continue;
-    }
-
-    // 띄어쓰기 파싱
-    const tokens = line.split(/\s+/);
+  for (const seg of segments) {
+    const tokens = seg.split(/\s+/);
     if (tokens.length < 3) continue;
 
     const qty = Number(tokens[tokens.length - 1]);
     if (![20, 60, 100].includes(qty)) continue;
 
-    // 재료: 앞 2토큰(철 주괴) 우선, 아니면 1토큰(가죽/철주괴)
     const firstTwo = tokens.slice(0, 2).join(" ");
     const firstOne = tokens[0];
 
@@ -216,21 +203,42 @@ export function renderBondsDashboardPng({ title = "동대륙 채권", items = []
   ctx.fillText(formatStamp(), W / 2, pad + 72);
   ctx.textAlign = "left";
 
-  // 표 헤더
+  // 표 헤더 (3칸 분할 + 가운데 정렬)
   ctx.lineWidth = 1;
   ctx.strokeStyle = "#d1d5db"; // 엑셀 선
-  ctx.fillStyle = "#f3f4f6";
-  ctx.fillRect(tableX, tableY, tableW, headerH);
-  ctx.strokeRect(tableX, tableY, tableW, headerH);
 
+  // 재료 헤더 셀
+  ctx.fillStyle = "#f3f4f6";
+  ctx.fillRect(tableX, tableY, colMatW, headerH);
+  ctx.strokeRect(tableX, tableY, colMatW, headerH);
+
+  // 마을 헤더 셀
+  ctx.fillStyle = "#f3f4f6";
+  ctx.fillRect(tableX + colMatW, tableY, colTownW, headerH);
+  ctx.strokeRect(tableX + colMatW, tableY, colTownW, headerH);
+
+  // 수량 헤더 셀
+  ctx.fillStyle = "#f3f4f6";
+  ctx.fillRect(tableX + colMatW + colTownW, tableY, colQtyW, headerH);
+  ctx.strokeRect(tableX + colMatW + colTownW, tableY, colQtyW, headerH);
+
+  // 헤더 텍스트: 가운데 정렬 (수량도 헤더는 가운데)
   ctx.fillStyle = "#374151";
   ctx.font = "700 22px KIKI_FONT";
-  ctx.fillText("재료", tableX + 14, tableY + 34);
-  ctx.fillText("마을", tableX + colMatW + 14, tableY + 34);
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
 
-  ctx.textAlign = "right";
-  ctx.fillText("수량", tableX + tableW - 14, tableY + 34);
+  ctx.fillText("재료", tableX + colMatW / 2, tableY + headerH / 2);
+  ctx.fillText("마을", tableX + colMatW + colTownW / 2, tableY + headerH / 2);
+  ctx.fillText(
+    "수량",
+    tableX + colMatW + colTownW + colQtyW / 2,
+    tableY + headerH / 2
+  );
+
+  // 원복
   ctx.textAlign = "left";
+  ctx.textBaseline = "alphabetic";;
 
   // 줄무늬
   const rowFill = (i) => (i % 2 === 0 ? "#ffffff" : "#fafafa");
@@ -274,20 +282,27 @@ export function renderBondsDashboardPng({ title = "동대륙 채권", items = []
       ctx.fillRect(tableX + colMatW + colTownW, y, colQtyW, rowH);
       ctx.strokeRect(tableX + colMatW + colTownW, y, colQtyW, rowH);
 
-      // 마을 텍스트
-      ctx.fillStyle = "#111827";
-      ctx.font = "24px KIKI_FONT";
-      const town = ellipsize(ctx, it.town, colTownW - 24);
-      ctx.fillText(town, tableX + colMatW + 12, y + 34);
+// 마을 텍스트: 가운데 정렬
+ctx.fillStyle = "#111827";
+ctx.font = "24px KIKI_FONT";
+const town = ellipsize(ctx, it.town, colTownW - 24);
 
-      // 수량 텍스트(색으로만 강조)
-      const qtyColor =
-        it.qty === 100 ? "#dc2626" : it.qty === 60 ? "#d97706" : "#059669";
-      ctx.fillStyle = qtyColor;
-      ctx.font = "900 24px KIKI_FONT";
-      ctx.textAlign = "right";
-      ctx.fillText(String(it.qty), tableX + tableW - 14, y + 34);
-      ctx.textAlign = "left";
+ctx.textAlign = "center";
+ctx.textBaseline = "middle";
+ctx.fillText(town, tableX + colMatW + colTownW / 2, y + rowH / 2);
+
+// 수량 텍스트: 숫자만 오른쪽 정렬 + 색 강조
+const qtyColor =
+  it.qty === 100 ? "#dc2626" : it.qty === 60 ? "#d97706" : "#059669";
+
+ctx.fillStyle = qtyColor;
+ctx.font = "900 24px KIKI_FONT";
+ctx.textAlign = "right";
+ctx.fillText(String(it.qty), tableX + tableW - 14, y + rowH / 2);
+
+// 원복
+ctx.textAlign = "left";
+ctx.textBaseline = "alphabetic";
     });
 
     cursorY += groupH;
