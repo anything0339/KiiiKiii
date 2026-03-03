@@ -187,12 +187,12 @@ export function renderBondsDashboardPng({ title = "동대륙 채권", items = []
 
   // 제목
   ctx.fillStyle = "#ffffff";
-  ctx.font = "700 44px sans-serif";
+  ctx.font = "700 44px KIKI_FONT";
   ctx.fillText(title, padding + 22, 78);
 
   // 타임스탬프
   ctx.fillStyle = "#93a4d8";
-  ctx.font = "26px sans-serif";
+  ctx.font = "26px KIKI_FONT";
   ctx.fillText(formatStamp(), padding + 22, 112);
 
   // 섹션 카드 그리기
@@ -203,7 +203,7 @@ export function renderBondsDashboardPng({ title = "동대륙 채권", items = []
 
     // 섹션 타이틀
     ctx.fillStyle = "#e9ecf5";
-    ctx.font = "700 30px sans-serif";
+    ctx.font = "700 30px KIKI_FONT";
     ctx.fillText(material, x + 18, y + 44);
 
     // 구분선
@@ -211,7 +211,7 @@ export function renderBondsDashboardPng({ title = "동대륙 채권", items = []
     ctx.fillRect(x + 18, y + 60, w - 36, 2);
 
     // 항목
-    ctx.font = "26px sans-serif";
+    ctx.font = "26px KIKI_FONT";
     const townMaxW = w - 36 - 110; // 배지 공간 확보
     let ry = y + 74;
 
@@ -233,12 +233,12 @@ export function renderBondsDashboardPng({ title = "동대륙 채권", items = []
       ctx.fill();
 
       ctx.fillStyle = fg;
-      ctx.font = "700 22px sans-serif";
+      ctx.font = "700 22px KIKI_FONT";
       const t = String(it.qty);
       const tw = ctx.measureText(t).width;
       ctx.fillText(t, bx + (bw - tw) / 2, by + 22);
 
-      ctx.font = "26px sans-serif";
+      ctx.font = "26px KIKI_FONT";
       ry += rowH;
     }
   }
