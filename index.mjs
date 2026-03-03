@@ -250,7 +250,7 @@ async function registerCommands() {
 
 /* ------------------ client ------------------ */
 
-const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers] });
 
 function requireManageGuild(interaction) {
   const perms = interaction.memberPermissions;
@@ -333,6 +333,31 @@ async function tick() {
 }
 
 /* ------------------ bot events ------------------ */
+
+/* ------------------ auto approve (join -> role) ------------------ */
+
+const AUTO_ROLE_ID = process.env.AUTO_ROLE_ID || null;     // 자동으로 줄 역할(예: Member)
+const JOIN_LOG_CHANNEL_ID = process.env.JOIN_LOG_CHANNEL_ID || null; // 선택(입장 로그 채널)
+
+client.on("guildMemberAdd", async (member) => {
+  try {
+    if (!AUTO_ROLE_ID) return;
+
+    // 역할 부여
+    await member.roles.add(AUTO_ROLE_ID);
+    console.log(`🎉 auto role granted: ${member.user.tag}`);
+
+    // (선택) 입장 로그
+    if (JOIN_LOG_CHANNEL_ID) {
+      const ch = await member.guild.channels.fetch(JOIN_LOG_CHANNEL_ID).catch(() => null);
+      if (ch && "send" in ch) {
+        await ch.send(`📥 **${member.user.tag}** 입장 → 자동 승인(역할 부여) 완료`);
+      }
+    }
+  } catch (err) {
+    console.error("❌ auto role failed:", err);
+  }
+});
 
 client.once("ready", async () => {
   console.log(`Logged in as ${client.user.tag}`);
