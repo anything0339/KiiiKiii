@@ -13,6 +13,8 @@ import {
   PermissionsBitField,
 } from "discord.js";
 
+import { renderBondsDashboardPng, parseBondsLines } from "./renderBondsDashboard.js";
+
 /* ------------------ config (persist) ------------------ */
 
 const CONFIG_PATH = "./config.json";
@@ -219,6 +221,22 @@ const commands = [
   new SlashCommandBuilder()
     .setName("testalert")
     .setDescription("알림 채널로 임베드 테스트 발송"),
+
+  new SlashCommandBuilder()
+  .setName("bonds_east")
+  .setDescription("동대륙 채권 PNG 생성")
+  .addStringOption((opt) =>
+    opt
+      .setName("text")
+      .setDescription("재료 | 마을 | 20/60/100 (여러 줄 가능)")
+      .setRequired(true)
+  )
+  .addAttachmentOption((opt) =>
+    opt
+      .setName("image")
+      .setDescription("추가 이미지 (선택)")
+      .setRequired(false)
+  ),
 ].map((c) => c.toJSON());
 
 const rest = new REST({ version: "10" }).setToken(TOKEN);
@@ -416,6 +434,50 @@ client.on("interactionCreate", async (interaction) => {
       await interaction.editReply("✅ 발송 완료! 알림 채널 확인해줘.");
       return;
     }
+
+    // bonds_east
+    if (interaction.commandName === "bonds_east") {
+      await interaction.deferReply({ ephemeral: true });
+
+      const raw = interaction.options.getString("text", true);
+      const extraImage = interaction.options.getAttachment("image", false);
+
+      const items = parseBondsLines(raw);
+      if (!items.length) {
+        await interaction.editReply(
+          "형식: 재료 | 마을 | 20/60/100\n예: 철 주괴 | 동틀녘 반도 | 20"
+        );
+        return;
+      }
+
+      const png = renderBondsDashboardPng({
+        title: "동대륙 채권",
+        items,
+      });
+
+      const channelId = process.env.BSB_CHANNEL_ID;
+      if (!channelId) {
+        await interaction.editReply("BSB_CHANNEL_ID 환경변수가 없어! Railway Variables에 추가해줘.");
+        return;
+      }
+
+      const targetChannel = await client.channels.fetch(channelId);
+      if (!targetChannel?.isTextBased()) {
+        await interaction.editReply("BSB_CHANNEL_ID 채널을 찾지 못했어(텍스트 채널인지도 확인)!");
+        return;
+      }
+
+      const files = [png];
+      if (extraImage?.url) files.push(extraImage.url);
+
+      await targetChannel.send({
+        content: "📌 **동대륙 채권**",
+        files,
+      });
+
+      await interaction.editReply("✅ 전송 완료!");
+      return;
+    }
   } catch (err) {
     console.error(err);
     const msg = `❌ 실패: ${err?.message ?? "unknown error"}`;
@@ -426,7 +488,6 @@ client.on("interactionCreate", async (interaction) => {
     }
   }
 });
-
 /* ------------------ start ------------------ */
 
 await registerCommands();
