@@ -61,21 +61,41 @@ export function normMaterial(input) {
 export function parseBondsLines(raw) {
   if (!raw) return [];
 
-  // 1️⃣ 줄바꿈 + 쉼표 + 슬래시 모두 구분자로 사용
+  // 구분자 기준으로 덩어리 분리: 줄바꿈/쉼표/슬래시
   const segments = String(raw)
     .split(/\n|,|\/+/)
     .map((s) => s.trim())
     .filter(Boolean);
 
   const items = [];
+  let currentMaterial = null;
 
   for (const seg of segments) {
-    const tokens = seg.split(/\s+/);
-    if (tokens.length < 3) continue;
+    // 1) | 형식도 지원
+    if (seg.includes("|")) {
+      const parts = seg.split("|").map((p) => p.trim());
+      if (parts.length !== 3) continue;
 
+      const material = normMaterial(parts[0]);
+      const town = parts[1];
+      const qty = Number(parts[2]);
+
+      if (!material || !town || ![20, 60, 100].includes(qty)) continue;
+
+      currentMaterial = material;
+      items.push({ material, town, qty });
+      continue;
+    }
+
+    const tokens = seg.split(/\s+/);
+    if (tokens.length < 2) continue;
+
+    // 마지막은 수량
     const qty = Number(tokens[tokens.length - 1]);
     if (![20, 60, 100].includes(qty)) continue;
 
+    // 케이스 A) "재료 ...마을... 수량"
+    // 케이스 B) "...마을... 수량" (재료 생략) → currentMaterial 사용
     const firstTwo = tokens.slice(0, 2).join(" ");
     const firstOne = tokens[0];
 
@@ -87,7 +107,15 @@ export function parseBondsLines(raw) {
       townStartIdx = 1;
     }
 
-    if (!material) continue;
+    if (material) {
+      // 재료를 명시한 케이스
+      currentMaterial = material;
+    } else {
+      // 재료 생략 케이스 → 이전 재료 사용
+      if (!currentMaterial) continue;
+      material = currentMaterial;
+      townStartIdx = 0;
+    }
 
     const town = tokens.slice(townStartIdx, tokens.length - 1).join(" ").trim();
     if (!town) continue;
