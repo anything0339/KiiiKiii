@@ -6,14 +6,9 @@ import { AttachmentBuilder } from "discord.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// ✅ 여기 폰트 파일명만 네가 올린 이름으로 바꾸면 됨
+// ✅ 루트에 폰트 있을 때는 이렇게!
 GlobalFonts.registerFromPath(
-  path.join(__dirname, "fonts", "Aa보글보글.ttf"),
-  "KIKI_FONT"
-);
-
-GlobalFonts.registerFromPath(
-  path.join(__dirname, "fonts", "Aa보글보글.ttf"),
+  path.join(__dirname, "Aa보글보글.ttf"),
   "KIKI_FONT"
 );
 
